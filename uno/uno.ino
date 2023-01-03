@@ -6,28 +6,28 @@
 #define FLAME_PIN A0
 #define MQ2_PIN A1
 
+const String DHT_PREF = "DHT: ";
 String data = "";
 int fire;
-float temp, hum, lpg, co, smoke;
+float lpg, co, smoke;
+float temp = -1;
+float hum = -1;
 
 SoftwareSerial uno(2, 3);
 MQ2 mq2(MQ2_PIN);
 
-void buzzer(void *pvParameters);
 void readData(void *pvParameters);
-void flame(void *pvParameters);
-void humtemp(void *pvParameters);
+void readSensors(void *pvParameters);
 void sendData(void *pvParameters);
 
 void setup() {
   Serial.begin(9600);
   uno.begin(9600);
   mq2.begin();
+  pinMode(BUZZ_PIN, OUTPUT);
 
   xTaskCreate(readData, "readData", 128, NULL, 1, NULL);
-  xTaskCreate(buzzer, "buzzer", 128, NULL, 1, NULL);
-  xTaskCreate(flame, "flame", 128, NULL, 1, NULL);
-  xTaskCreate(humtemp, "humtemp", 128, NULL, 1, NULL);
+  xTaskCreate(readSensors, "readSensors", 128, NULL, 1, NULL);
 }
 
 void loop() {}
@@ -41,27 +41,23 @@ void readData(void *pvParameters){
     }
     data.trim();
 
-    if(data != ""){
-      vDelay(1000);
+    if(data == "") continue;
+    Serial.println("Data Diterima: " + data);
+    if(data == "buzzon") digitalWrite(BUZZ_PIN, HIGH);
+    else if(data == "buzzoff") digitalWrite(BUZZ_PIN, LOW);
+    else if(prefix(DHT_PREF.c_str(), data.c_str())){
+      data.replace("DHT: ", "");
+      int idx = data.indexOf('-');
+      temp = data.substring(0, idx).toFloat();
+      hum = data.substring(idx + 1, data.length()).toFloat();
     }
+    else uno.println("404");
+
+    vDelay(1000);
   }
 }
 
-void buzzer(void *pvParameters){
-  pinMode(BUZZ_PIN, OUTPUT);
-  while(1){
-    if(data == "buzzon"){
-      digitalWrite(BUZZ_PIN, HIGH);
-    }
-
-    if(data == "buzzoff"){
-      digitalWrite(BUZZ_PIN, LOW);
-    }    
-  }
-}
-
-void flame(void *pvParameters){
-  pinMode(FLAME_PIN, INPUT);
+void readSensors(void *pvParameters){
   while(1){
     fire = analogRead(FLAME_PIN);
     Serial.println("Api: " + String(fire));
@@ -77,22 +73,12 @@ void flame(void *pvParameters){
     Serial.println("LPG: " + String(lpg));
     Serial.println("Asap: " + String(smoke));
 
-    vDelay(1000);
-  }
-}
-
-void humtemp(void *pvParameters){
-  while(1){
-    String pref = "DHT: ";
-    if(prefix(pref.c_str(), data.c_str())){
-      data.replace("DHT: ", "");
-      int idx = data.indexOf('-');
-      temp = data.substring(0, idx).toFloat();
-      hum = data.substring(idx + 1, data.length()).toFloat();
-      Serial.println("Temperatur: " + String(temp) + "°C");
-      Serial.println("Kelembapan: " + String(hum) + "RH");
+    if(temp != -1 && hum != -1){
+      Serial.println("Temperatur: " + String(temp));
+      Serial.println("Kelembapan: " + String(hum));
     }
-    vDelay(2000);
+
+    vDelay(1000);
   }
 }
 
