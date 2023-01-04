@@ -5,13 +5,17 @@
 #define BUZZ_PIN 4
 #define FLAME_PIN A0
 #define MQ2_PIN A1
+#define RELAY_PIN 5
+#define LED_PIN 6
 
 const String DHT_PREF = "DHT: ";
+const float SMOKE_TRESH = 120;
 String data = "";
 int fire;
 float lpg, co, smoke;
 float temp = -1;
 float hum = -1;
+bool persistBuzz = false;
 
 SoftwareSerial uno(2, 3);
 MQ2 mq2(MQ2_PIN);
@@ -25,6 +29,8 @@ void setup() {
   uno.begin(9600);
   mq2.begin();
   pinMode(BUZZ_PIN, OUTPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH);
 
   xTaskCreate(readData, "readData", 128, NULL, 1, NULL);
   xTaskCreate(readSensors, "readSensors", 128, NULL, 1, NULL);
@@ -42,9 +48,9 @@ void readData(void *pvParameters){
     data.trim();
 
     if(data == "") continue;
-    Serial.println("Data Diterima: " + data);
-    if(data == "buzzon") digitalWrite(BUZZ_PIN, HIGH);
-    else if(data == "buzzoff") digitalWrite(BUZZ_PIN, LOW);
+
+    if(data == "buzzon") buzzOnPersist();
+    else if(data == "buzzoff") buzzOffPersist();
     else if(prefix(DHT_PREF.c_str(), data.c_str())){
       data.replace("DHT: ", "");
       int idx = data.indexOf('-');
@@ -60,38 +66,47 @@ void readData(void *pvParameters){
 void readSensors(void *pvParameters){
   while(1){
     fire = analogRead(FLAME_PIN);
-    Serial.println("Api: " + String(fire));
-    if(fire < 100){
-      uno.println("warn:fire");
-    }
-
     lpg = mq2.readLPG();
     co = mq2.readCO();
     smoke = mq2.readSmoke();
-
-    Serial.println("CO: " + String(co));
-    Serial.println("LPG: " + String(lpg));
-    Serial.println("Asap: " + String(smoke));
-
-    if(temp != -1 && hum != -1){
-      Serial.println("Temperatur: " + String(temp));
-      Serial.println("Kelembapan: " + String(hum));
+    
+    if(smoke > SMOKE_TRESH && fire < 100){
+      fireOn();
+      uno.println("fire!!!");
+    }else if(fire >= 100 && smoke <= SMOKE_TRESH){
+      fireOff();
+    }else if(fire < 100 && smoke <= SMOKE_TRESH){
+      uno.println("warn:fire");
+    }else{
+      String sendStr = "INFO: " + String(lpg) + " " + String(co) + " " + String(smoke);
+      uno.println(sendStr);
     }
 
-    vDelay(1000);
+    vDelay(500);
   }
 }
 
-void sendData(void *pvParameters){
-  while(1){
-    if(data == "temp"){
-      uno.println("temp: " + String(temp));
-    }
 
-    if(data == "hum"){
-      uno.println("hum: " + String(hum));
-    }
-  }
+void fireOn(){
+  digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(BUZZ_PIN, HIGH);
+  digitalWrite(LED_PIN, HIGH);
+}
+
+void fireOff(){
+  digitalWrite(RELAY_PIN, HIGH);
+  digitalWrite(LED_PIN, LOW);
+  if(!persistBuzz) digitalWrite(BUZZ_PIN, LOW);
+}
+
+void buzzOnPersist(){
+  persistBuzz = true;
+  digitalWrite(BUZZ_PIN, HIGH);
+}
+
+void buzzOffPersist(){
+  persistBuzz = false;
+  digitalWrite(BUZZ_PIN, LOW);
 }
 
 void vDelay(int ms){
